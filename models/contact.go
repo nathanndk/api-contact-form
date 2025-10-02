@@ -28,14 +28,16 @@ type Contact struct {
 	Message string `gorm:"column:message_text;type:TEXT;not null"`
 
 	// CreatedAt records the timestamp when the contact message was created.
-	CreatedAt time.Time `gorm:"column:created_at;type:DATETIME;autoCreateTime"`
+	CreatedAt time.Time `gorm:"column:created_at;type:TIMESTAMP;autoCreateTime"`
+
 
 	// UpdatedAt records the timestamp when the contact message was last updated.
-	UpdatedAt time.Time `gorm:"column:updated_at;type:DATETIME;autoUpdateTime"`
+	UpdatedAt time.Time `gorm:"column:updated_at;type:TIMESTAMP;autoUpdateTime"`
 
 	// DeletedAt records the timestamp when the contact message was deleted.
 	// This field is indexed to optimize deletion queries.
-	DeletedAt time.Time `gorm:"column:deleted_at;type:DATETIME;index"`
+	DeletedAt time.Time `gorm:"column:deleted_at;index"`
+
 }
 
 // TableName specifies the table name for the Contact model in the database.

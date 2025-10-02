@@ -1,72 +1,85 @@
 // Package config handles the initialization and configuration of the database connection.
 //
-// It establishes a connection to a MySQL database using GORM, configures the connection pool,
+// It establishes a connection to a PostgreSQL database using GORM, configures the connection pool,
 // and performs automatic migrations for the Contact model.
-//
 package config
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"api-contact-form/models"
 
-	"gorm.io/driver/mysql"
+	"github.com/joho/godotenv"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
 
 // DB is a global variable that holds the database connection instance.
-// It is accessible throughout the application for executing database operations.
 var DB *gorm.DB
 
-// InitDB initializes the database connection using environment variables.
-// It sets up the connection pool and performs automatic migrations for the Contact model.
-//
-// The function performs the following steps:
-// 1. Retrieves database configuration from environment variables.
-// 2. Constructs the Data Source Name (DSN) for MySQL connection.
-// 3. Opens the database connection using GORM with a singular table naming strategy.
-// 4. Configures the connection pool with specified limits.
-// 5. Automatically migrates the Contact model to create or update the corresponding table.
-//
-// If any step fails, the function will panic with an appropriate error message.
-func InitDB() {
-	// Retrieve database configuration from environment variables with default values.
-	dbUser := GetEnv("DB_USER", "user")
-	dbPassword := GetEnv("DB_PASSWORD", "password")
-	dbHost := GetEnv("DB_HOST", "db")
-	dbPort := GetEnv("DB_PORT", "3306")
-	dbName := GetEnv("DB_NAME", "contactsdb")
+// GetEnv is assumed to exist elsewhere in your codebase. If not, uncomment this.
+// func GetEnv(key, def string) string {
+// 	if v := os.Getenv(key); v != "" {
+// 		return v
+// 	}
+// 	return def
+// }
 
-	// Construct the Data Source Name (DSN) for MySQL connection.
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		dbUser, dbPassword, dbHost, dbPort, dbName)
+// InitDB initializes the PostgreSQL connection using environment variables.
+// Steps:
+// 1) Read env
+// 2) Build Postgres DSN (with sslmode & TimeZone suitable for local dev)
+// 3) Open DB with GORM + SingularTable naming
+// 4) Tune connection pool
+// 5) Auto-migrate models
+func InitDB() {
+	_ = godotenv.Load() // ensure .env is loaded when running compiled binary
+
+	// Retrieve configuration with safe defaults for local dev
+	dbUser := GetEnv("DB_USER", "appuser")
+	dbPassword := GetEnv("DB_PASSWORD", "appsecret")
+	dbHost := GetEnv("DB_HOST", "127.0.0.1")
+	dbPort := GetEnv("DB_PORT", "5432")
+	dbName := GetEnv("DB_NAME", "contactsdb")
+	sslmode := GetEnv("DB_SSLMODE", "disable")    // local dev: disable TLS
+	tz := GetEnv("DB_TZ", "Asia/Jakarta")         // GORM Postgres supports TimeZone in DSN
+
+	// DSN format per GORM Postgres driver
+	// Example: host=127.0.0.1 user=appuser password=appsecret dbname=contactsdb port=5432 sslmode=disable TimeZone=Asia/Jakarta
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
+		dbHost, dbUser, dbPassword, dbName, dbPort, sslmode, tz,
+	)
 
 	var err error
-
-	// Open the database connection using GORM with a singular table naming strategy.
-	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		NamingStrategy: schema.NamingStrategy{
-			SingularTable: true,
+			SingularTable: true, // keep your existing singular tables
 		},
+		// You can add Logger or other options here if needed
 	})
 	if err != nil {
-		panic(fmt.Sprintf("Failed to connect to database: %v", err))
+		log.Fatalf("Failed to connect to Postgres: %v", err)
 	}
 
-	// Configure the connection pool settings.
 	sqlDB, err := DB.DB()
 	if err != nil {
-		panic("Failed to get database instance!")
+		log.Fatal("Failed to get database instance!")
 	}
 
-	sqlDB.SetMaxOpenConns(10)           // Maximum number of open connections to the database.
-	sqlDB.SetMaxIdleConns(5)            // Maximum number of idle connections in the pool.
-	sqlDB.SetConnMaxLifetime(time.Hour) // Maximum amount of time a connection may be reused.
+	// Connection pool tuning (reasonable local defaults)
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetConnMaxLifetime(1 * time.Hour)
 
-	// Automatically migrate the Contact model to create or update the corresponding table.
+	// Auto-migrate your models
 	if err := DB.AutoMigrate(&models.Contact{}); err != nil {
-		panic(fmt.Sprintf("AutoMigrate failed: %v", err))
+		log.Fatalf("AutoMigrate failed: %v", err)
 	}
+
+	log.Printf("Connected to Postgres %s:%s db=%s as %s (sslmode=%s, tz=%s)",
+		dbHost, dbPort, dbName, dbUser, sslmode, tz)
 }
