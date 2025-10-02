@@ -2,7 +2,6 @@
 //
 // Specifically, the HealthHandler provides a health check endpoint to verify
 // that the API is running correctly.
-//
 package handlers
 
 import (
