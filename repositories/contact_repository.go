@@ -1,73 +1,98 @@
-// Package repositories provides implementations for data persistence and retrieval
-// related to contact entities in the API Contact Form application.
-//
-// It defines the ContactRepository interface and its GORM-based implementation
-// for performing CRUD operations on contact records in the database.
-
 package repositories
 
 import (
 	"api-contact-form/models"
-	"time"
 
 	"gorm.io/gorm"
 )
 
+/*
+Package repositories implements data persistence and retrieval for contact entities.
+
+This file provides a GORM-backed ContactRepository implementation that performs
+CRUD operations for the Contact model. The implementation intentionally relies
+on GORM's soft-delete behavior (gorm.DeletedAt in the model) so that:
+  - calling Delete(...) performs a soft delete (sets deleted_at timestamp);
+  - normal queries (Find, First) automatically exclude soft-deleted rows.
+
+See GORM documentation for Delete / Soft Delete behavior.
+*/
+
 // ContactRepository defines the interface for contact data operations.
 type ContactRepository interface {
-	// Create adds a new contact to the database.
+	// Create inserts a new contact record into the database.
 	Create(contact *models.Contact) error
-	// FindAll retrieves all non-deleted contacts from the database.
+
+	// FindAll retrieves all non-deleted contacts.
+	// Note: GORM automatically excludes soft-deleted rows when the model
+	// uses gorm.DeletedAt.
 	FindAll() ([]models.Contact, error)
-	// FindByID retrieves a contact by its ID, ensuring it is not deleted.
+
+	// FindByID retrieves a contact by primary key (ID). Soft-deleted records
+	// are excluded by default.
 	FindByID(id uint) (*models.Contact, error)
-	// Update modifies an existing contact in the database.
+
+	// Update persists changes to an existing contact.
 	Update(contact *models.Contact) error
-	// Delete marks a contact as deleted in the database.
+
+	// Delete performs a soft-delete for the provided contact (sets deleted_at).
+	// For a hard delete, callers can use db.Unscoped().Delete(...) directly.
 	Delete(contact *models.Contact) error
 }
 
-// contactRepository is the GORM-based implementation of ContactRepository.
+// contactRepository is a GORM-based implementation of ContactRepository.
 type contactRepository struct {
 	db *gorm.DB
 }
 
-// NewContactRepository creates a new instance of ContactRepository with the provided GORM DB.
+// NewContactRepository constructs a new ContactRepository backed by the provided GORM DB.
 func NewContactRepository(db *gorm.DB) ContactRepository {
-	return &contactRepository{db}
+	return &contactRepository{db: db}
 }
 
-// Create adds a new contact to the database.
-// It returns an error if the operation fails.
+// Create inserts a new contact into the database using GORM.
+//
+// On success, the contact struct will have its ID and timestamps populated by GORM.
 func (r *contactRepository) Create(contact *models.Contact) error {
 	return r.db.Create(contact).Error
 }
 
-// FindAll retrieves all non-deleted contacts from the database.
-// It returns a slice of contacts and an error if the operation fails.
+// FindAll returns all contacts that are not soft-deleted.
+//
+// This relies on GORM's global soft-delete scope (models with gorm.DeletedAt
+// are excluded automatically from normal queries).
 func (r *contactRepository) FindAll() ([]models.Contact, error) {
 	var contacts []models.Contact
-	err := r.db.Where("deleted_at = ?", "0000-00-00 00:00:00").Find(&contacts).Error
-	return contacts, err
+	if err := r.db.Find(&contacts).Error; err != nil {
+		return nil, err
+	}
+	return contacts, nil
 }
 
-// FindByID retrieves a contact by its ID, ensuring it is not deleted.
-// It returns the contact and an error if the contact is not found or the operation fails.
+// FindByID looks up a contact by primary key and returns it.
+//
+// If no record is found, GORM will return an error (e.g., gorm.ErrRecordNotFound).
+// Soft-deleted records are excluded by default; use r.db.Unscoped().First(...) if you
+// intentionally need deleted records.
 func (r *contactRepository) FindByID(id uint) (*models.Contact, error) {
 	var contact models.Contact
-	err := r.db.Where("id = ? AND deleted_at = ?", id, "0000-00-00 00:00:00").First(&contact).Error
-	return &contact, err
+	if err := r.db.First(&contact, id).Error; err != nil {
+		return nil, err
+	}
+	return &contact, nil
 }
 
-// Update modifies an existing contact in the database.
-// It returns an error if the operation fails.
+// Update persists changes to an existing contact record.
+//
+// This uses Save(...) which performs an update based on the primary key.
 func (r *contactRepository) Update(contact *models.Contact) error {
 	return r.db.Save(contact).Error
 }
 
-// Delete marks a contact as deleted in the database by setting the DeletedAt field.
-// It returns an error if the operation fails.
+// Delete performs a soft delete using GORM's Delete(...) method.
+//
+// GORM will set the model's DeletedAt timestamp rather than physically removing
+// the row. To permanently remove rows, use Unscoped().Delete(...).
 func (r *contactRepository) Delete(contact *models.Contact) error {
-	contact.DeletedAt = time.Now()
-	return r.db.Save(contact).Error
+	return r.db.Delete(contact).Error
 }
